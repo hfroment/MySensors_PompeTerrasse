@@ -5,6 +5,7 @@
 // Enable debug prints to serial monitor
 #define MY_DEBUG
 #define MY_NODE_ID 4
+#define MY_REPEATER_FEATURE
 
 #include <MyConfigFlea.h>
 #include <MyConfig.h>
@@ -12,18 +13,25 @@
 #include <DallasTemperature.h>
 #include <OneWire.h>
 
-#define MY_REPEATER_FEATURE
 
 static const uint8_t ds18b20Pin = A2;
 OneWire oneWire(ds18b20Pin); // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 DallasTemperature dsTemp(&oneWire); // Pass the oneWire reference to Dallas Temperature.
 // to hold device address
-DeviceAddress serreTemp;
-DeviceAddress pompeTemp;
-DeviceAddress bassinTemp;
+DeviceAddress exterieurTemperature;
+DeviceAddress pompeTemperature;
+DeviceAddress bassinTemperature;
 uint8_t numberOfTemp = 0;
 
-static const uint8_t pinPompe = 9;
+enum
+{
+    pinPompeBleue = 6,
+    pinPompeVerte = A1,
+    PIN_CUVE_BLEUE_HAUT = 2,
+    PIN_CUVE_BLEUE_BAS = 3,
+    PIN_CUVE_VERTE_HAUT = 4,
+    PIN_CUVE_VERTE_BAS = 5
+};
 
 String chainePresentation = "Shaton Terrasse";
 
@@ -38,8 +46,11 @@ void printAdresse(DeviceAddress& adresse)
     }
 }
 
+bool cuvePrincipalePleine = false;
+
 void before()
 {
+    cuvePrincipalePleine = false;
     // Startup up the OneWire library
     dsTemp.begin();
     dsTemp.setResolution(12);
@@ -62,88 +73,59 @@ void before()
                 printAdresse(adresse);
                 Serial.println("");
             }
-            // cellier = 0x28, 0xFF, 0x28, 0x85, 0xB3, 0x16, 0x03, 0x2A
-            /*
-            switch(i)
-            {
-            case serreTempIndex:
-                if (!dsTemp.getAddress(serreTemp, i))
-                {
-                    Serial.println("Unable to find address for DS18B20 cellier");
-                }
-                break;
-            case pompeTempIndex:
-                if (!dsTemp.getAddress(pompeTemp, i))
-                {
-                    Serial.println("Unable to find address for DS18B20 grange");
-                }
-                break;
-            case bassinTempIndex:
-                if (!dsTemp.getAddress(bassinTemp, i))
-                {
-                    Serial.println("Unable to find address for DS18B20 cuve");
-                }
-                break;
-            default:
-                Serial.println("Trop de DS18B20");
-                break;
-            }
-*/
         }
     }
     else
     {
         Serial.println("Pas de DS18B20");
     }
-    // Température serre
-    serreTemp[0] = 0x28;
-    serreTemp[1] = 0xFF;
-    serreTemp[2] = 0x28;
-    serreTemp[3] = 0x85;
-    serreTemp[4] = 0xB3;
-    serreTemp[5] = 0x16;
-    serreTemp[6] = 0x03;
-    serreTemp[7] = 0x2A;
+    // Température Exterieur
+    exterieurTemperature[0] = 0x28;
+    exterieurTemperature[1] = 0xFF;
+    exterieurTemperature[2] = 0xB0;
+    exterieurTemperature[3] = 0xf2;
+    exterieurTemperature[4] = 0x92;
+    exterieurTemperature[5] = 0x16;
+    exterieurTemperature[6] = 0x05;
+    exterieurTemperature[7] = 0x6f;
     // Température pompe
-    pompeTemp[0] = 0x28;
-    pompeTemp[1] = 0xFF;
-    pompeTemp[2] = 0xE7;
-    pompeTemp[3] = 0x52;
-    pompeTemp[4] = 0xC0;
-    pompeTemp[5] = 0x17;
-    pompeTemp[6] = 0x05;
-    pompeTemp[7] = 0xF2;
+    pompeTemperature[0] = 0x28;
+    pompeTemperature[1] = 0xFF;
+    pompeTemperature[2] = 0xE7;
+    pompeTemperature[3] = 0x52;
+    pompeTemperature[4] = 0xC0;
+    pompeTemperature[5] = 0x17;
+    pompeTemperature[6] = 0x05;
+    pompeTemperature[7] = 0xF2;
     // Température bassin
-    bassinTemp[0] = 0x28;
-    bassinTemp[1] = 0xFF;
-    bassinTemp[2] = 0x7C;
-    bassinTemp[3] = 0x05;
-    bassinTemp[4] = 0xB3;
-    bassinTemp[5] = 0x17;
-    bassinTemp[6] = 0x01;
-    bassinTemp[7] = 0x01;
+    bassinTemperature[0] = 0x28;
+    bassinTemperature[1] = 0xFF;
+    bassinTemperature[2] = 0x7C;
+    bassinTemperature[3] = 0x05;
+    bassinTemperature[4] = 0xB3;
+    bassinTemperature[5] = 0x17;
+    bassinTemperature[6] = 0x01;
+    bassinTemperature[7] = 0x01;
     // On force les 3 températures
     numberOfTemp = 3;
-    // On éteint le pompe
-    pinMode(pinPompe, OUTPUT);
-    digitalWrite(pinPompe, LOW);
+    // On éteint les pompes
+    pinMode(pinPompeBleue, OUTPUT);
+    digitalWrite(pinPompeBleue, LOW);
+    pinMode(pinPompeVerte, OUTPUT);
+    digitalWrite(pinPompeVerte, LOW);
 }
 
-bool metric = true;
-
 enum {
-    CHILD_ID_TEMP_SERRE,
+    CHILD_ID_TEMP_EXTERIEUR,
     CHILD_ID_TEMP_POMPE,
     CHILD_ID_TEMP_BASSIN,
-    CHILD_ID_VOLUME_HAUT,
-    CHILD_ID_VOLUME_BAS,
-    CHILD_ID_POMPE
-};
-
-enum
-{
-    PIN_VOLUME_HAUT = A3,
-    PIN_VOLUME_BAS = A0
+    CHILD_ID_CUVE_BLEUE_HAUT,
+    CHILD_ID_CUVE_BLEUE_BAS,
+    CHILD_ID_POMPE_BLEUE,
+    CHILD_ID_CUVE_VERTE_HAUT,
+    CHILD_ID_CUVE_VERTE_BAS,
+    CHILD_ID_POMPE_VERTE,
+    CHILD_ID_CUVE_PRINCIPALE_PLEINE
 };
 
 void presentation()
@@ -153,18 +135,17 @@ void presentation()
     sendSketchInfo(chainePresentation.c_str(), "1.0");
 
     // Register all sensors to gateway (they will be created as child devices)
-    present(CHILD_ID_TEMP_SERRE, S_TEMP, "Serre");
+    present(CHILD_ID_TEMP_EXTERIEUR, S_TEMP, "Extérieur");
     present(CHILD_ID_TEMP_POMPE, S_TEMP, "Pompe");
     present(CHILD_ID_TEMP_BASSIN, S_TEMP, "Bassin");
-    present(CHILD_ID_POMPE, S_BINARY, "Pompe");
-    present(CHILD_ID_VOLUME_HAUT, S_BINARY, "Plein");
-    present(CHILD_ID_VOLUME_BAS, S_BINARY, "Vide");
-    metric = getControllerConfig().isMetric;
+    present(CHILD_ID_POMPE_BLEUE, S_BINARY, "Pompe bleue");
+    present(CHILD_ID_CUVE_BLEUE_HAUT, S_BINARY, "Plein cuve Bleue");
+    present(CHILD_ID_CUVE_BLEUE_BAS, S_BINARY, "Vide cuve Bleue");
+    present(CHILD_ID_POMPE_VERTE, S_BINARY, "Pompe Verte");
+    present(CHILD_ID_CUVE_VERTE_HAUT, S_BINARY, "Plein cuve Verte");
+    present(CHILD_ID_CUVE_VERTE_BAS, S_BINARY, "Vide cuve Verte");
+    present(CHILD_ID_CUVE_PRINCIPALE_PLEINE, S_BINARY, "Plein cuve Principale");
 }
-
-//static const uint8_t dhtPin = A3;
-//dht1wire dhtGrange(dhtPin, dht::DHT11);
-//dht12 dht;
 
 void setup()
 {
@@ -174,28 +155,58 @@ void setup()
         // requestTemperatures() will not block current thread
         dsTemp.setWaitForConversion(false);
     }
-//    // Capteurs de hauteur d'eau
-// Il faut des pulldown esternes
-//    pinMode(PIN_VOLUME_HAUT, INPUT_PULLUP);
-//    pinMode(PIN_VOLUME_BAS, INPUT_PULLUP);
+    //    // Capteurs de hauteur d'eau
+    // Il faut des pulldown externes
+    //    pinMode(PIN_CUVE_BLEUE_HAUT, INPUT_PULLUP);
+    //    pinMode(PIN_CUVE_BLEUE_BAS, INPUT_PULLUP);
+    //    pinMode(PIN_CUVE_VERTE_HAUT, INPUT_PULLUP);
+    //    pinMode(PIN_CUVE_VERTE_BAS, INPUT_PULLUP);
 
 }
 
-MyMessage temperatureSerreMsg(CHILD_ID_TEMP_SERRE, V_TEMP);
-MyMessage temperaturePompeMsg(CHILD_ID_TEMP_POMPE, V_TEMP);
+MyMessage temperatureExterieurMsg(CHILD_ID_TEMP_EXTERIEUR, V_TEMP);
+MyMessage temperaturePompeBleueMsg(CHILD_ID_TEMP_POMPE, V_TEMP);
 MyMessage temperatureBassinMsg(CHILD_ID_TEMP_BASSIN, V_TEMP);
-MyMessage volumeHautMsg(CHILD_ID_VOLUME_HAUT, V_STATUS);
-MyMessage volumeBasMsg(CHILD_ID_VOLUME_BAS, V_STATUS);
-MyMessage pompeMsg(CHILD_ID_POMPE, V_STATUS);
+MyMessage cuveBleueHautMsg(CHILD_ID_CUVE_BLEUE_HAUT, V_STATUS);
+MyMessage cuveBleueBasMsg(CHILD_ID_CUVE_BLEUE_BAS, V_STATUS);
+MyMessage pompeBleueMsg(CHILD_ID_POMPE_BLEUE, V_STATUS);
+MyMessage cuveVerteHautMsg(CHILD_ID_CUVE_VERTE_HAUT, V_STATUS);
+MyMessage cuveVerteBasMsg(CHILD_ID_CUVE_VERTE_BAS, V_STATUS);
+MyMessage pompeVerteMsg(CHILD_ID_POMPE_VERTE, V_STATUS);
+MyMessage cuvePrincipalePleineMsg(CHILD_ID_CUVE_PRINCIPALE_PLEINE, V_STATUS);
 
-static const uint8_t cycleCountSize = 6 * 20;
-DataAverage temperatureSerreAverage(cycleCountSize);
+static const long cycleMs = 2500;
+static const uint8_t cycleCountSize = 6 * (60000 / cycleMs);
+DataAverage temperatureExterieurAverage(cycleCountSize);
 DataAverage temperaturePompeAverage(cycleCountSize);
 DataAverage temperatureBassinAverage(cycleCountSize);
 
+bool processTemperature(float& temperature, const DeviceAddress& device, DataAverage& dataAverage)
+{
+    bool retour = true;
+    temperature = dsTemp.getTempC(device);
+    if (!isnan(temperature) && (temperature > -127) && (temperature < 80))
+    {
+        dataAverage.addSample(temperature);
+
+#ifdef MY_DEBUG
+        Serial.print("T : ");
+        Serial.println(temperature);
+#endif
+    }
+    else
+    {
+#ifdef MY_DEBUG
+        Serial.print("Erreur T : ");
+        Serial.println(temperature);
+        retour = false;
+#endif
+    }
+    return retour;
+}
+
 void loop()
 {
-    static const long cycleMs = 2500;
     static const long preReadMs = 1000;
     static bool startup = true;
     static uint8_t cycleCount = 0; // compteur de cycle pour la moyenne 6 minutes
@@ -203,143 +214,155 @@ void loop()
     dsTemp.requestTemperatures();
     sleep(preReadMs);
 
-    float temperatureSerre = dsTemp.getTempC(serreTemp);
-    if (!isnan(temperatureSerre) && (temperatureSerre > -127))
+    float temperatureExterieur;
+    if (processTemperature(temperatureExterieur, exterieurTemperature, temperatureExterieurAverage) && startup)
     {
-        if (!metric)
-        {
-            temperatureSerre = dsTemp.toFahrenheit(temperatureSerre);
-        }
-        if (startup)
-        {
-            send(temperatureSerreMsg.set(temperatureSerre, 1));
-        }
-        temperatureSerreAverage.addSample(temperatureSerre);
-
-#ifdef MY_DEBUG
-        Serial.print("T Serre : ");
-        Serial.println(temperatureSerre);
-#endif
-    }
-    else
-    {
-#ifdef MY_DEBUG
-        Serial.println("Erreur T Serre");
-#endif
+        send(temperatureExterieurMsg.set(temperatureExterieur, 1));
     }
 
-    float temperaturePompe = dsTemp.getTempC(pompeTemp);
-    if (!isnan(temperaturePompe) && (temperaturePompe > -127))
+    float temperaturePompe;
+    if (processTemperature(temperaturePompe, pompeTemperature, temperaturePompeAverage) && startup)
     {
-        if (!metric)
-        {
-            temperaturePompe = dsTemp.toFahrenheit(temperaturePompe);
-        }
-        if (startup)
-        {
-            send(temperaturePompeMsg.set(temperaturePompe, 1));
-        }
-        temperaturePompeAverage.addSample(temperaturePompe);
-
-#ifdef MY_DEBUG
-        Serial.print("T Pompe: ");
-        Serial.println(temperaturePompe);
-#endif
-    }
-    else
-    {
-#ifdef MY_DEBUG
-        Serial.println("Erreur T Pompe");
-#endif
+        send(temperaturePompeBleueMsg.set(temperaturePompe, 1));
     }
 
-    float temperatureBassin = dsTemp.getTempC(bassinTemp);
-    if (!isnan(temperatureBassin) && (temperatureBassin > -127))
+    float temperatureBassin;
+    if (processTemperature(temperatureBassin, bassinTemperature, temperatureBassinAverage) && startup)
     {
-        if (!metric)
-        {
-            temperatureBassin = dsTemp.toFahrenheit(temperatureBassin);
-        }
-        if (startup)
-        {
-            send(temperatureBassinMsg.set(temperatureBassin, 1));
-        }
-        temperatureBassinAverage.addSample(temperatureBassin);
+      send(temperatureBassinMsg.set(temperatureBassin, 1));
+    }
 
-#ifdef MY_DEBUG
-        Serial.print("T Bassin: ");
-        Serial.println(temperatureBassin);
-#endif
-    }
-    else
-    {
-#ifdef MY_DEBUG
-        Serial.println("Erreur T Bassin");
-#endif
-    }
-    bool volumeHaut = digitalRead(PIN_VOLUME_HAUT) == HIGH;
-    bool volumeBas = digitalRead(PIN_VOLUME_BAS) != HIGH;
-    static bool pompeOnMemo = false;
-    bool pompeOn = pompeOnMemo;
+    bool cuveBleueHaut = digitalRead(PIN_CUVE_BLEUE_HAUT) == HIGH;
+    bool cuveBleueBas = digitalRead(PIN_CUVE_BLEUE_BAS) != HIGH;
+    bool cuveVerteHaut = digitalRead(PIN_CUVE_VERTE_HAUT) == HIGH;
+    bool cuveVerteBas = digitalRead(PIN_CUVE_VERTE_BAS) != HIGH;
+    static bool pompeBleueOnMemo = false;
+    bool pompeBleueOn = pompeBleueOnMemo;
+    static bool pompeVerteOnMemo = false;
+    bool pompeVerteOn = pompeVerteOnMemo;
     if (startup)
     {
-        send(volumeBasMsg.set(volumeBas, 0));
-        send(volumeHautMsg.set(volumeHaut, 0));
-        send(pompeMsg.set(pompeOn, 0));
+        send(cuveBleueBasMsg.set(cuveBleueBas, 0));
+        send(cuveBleueHautMsg.set(cuveBleueHaut, 0));
+        send(pompeBleueMsg.set(pompeBleueOn, 0));
+        send(cuveVerteBasMsg.set(cuveVerteBas, 0));
+        send(cuveVerteHautMsg.set(cuveVerteHaut, 0));
+        send(pompeVerteMsg.set(pompeVerteOn, 0));
+        send(cuvePrincipalePleineMsg.set(cuvePrincipalePleine, 0));
     }
-    if (volumeHaut)
+    if (cuveBleueHaut && !cuvePrincipalePleine)
     {
         // On alume le pompe
-        pompeOn = true;
-        digitalWrite(pinPompe, HIGH);
+        pompeBleueOn = true;
+        digitalWrite(pinPompeBleue, HIGH);
     }
-    if (volumeBas)
+    if (cuveBleueBas || cuvePrincipalePleine)
     {
         // On éteint le pompe
-        pompeOn = false;
-        digitalWrite(pinPompe, LOW);
+        pompeBleueOn = false;
+        digitalWrite(pinPompeBleue, LOW);
     }
-    if (pompeOn != pompeOnMemo)
+    if (pompeBleueOn != pompeBleueOnMemo)
     {
-        pompeOnMemo = pompeOn;
-        send(pompeMsg.set(pompeOn, 0));
+        pompeBleueOnMemo = pompeBleueOn;
+        send(pompeBleueMsg.set(pompeBleueOn, 0));
+    }
+    if (cuveVerteHaut && !cuvePrincipalePleine)
+    {
+        // On alume le pompe
+        pompeVerteOn = true;
+        digitalWrite(pinPompeVerte, HIGH);
+    }
+    if (cuveVerteBas || cuvePrincipalePleine)
+    {
+        // On éteint le pompe
+        pompeVerteOn = false;
+        digitalWrite(pinPompeVerte, LOW);
+    }
+    if (pompeVerteOn != pompeVerteOnMemo)
+    {
+        pompeVerteOnMemo = pompeVerteOn;
+        send(pompeVerteMsg.set(pompeVerteOn, 0));
     }
 #ifdef MY_DEBUG
     Serial.print("Haut: lu = ");
-    Serial.print(digitalRead(PIN_VOLUME_HAUT));
+    Serial.print(digitalRead(PIN_CUVE_BLEUE_HAUT));
     Serial.print(", plein = ");
-    Serial.println(volumeHaut);
+    Serial.println(cuveBleueHaut);
     Serial.print("Bas: lu = ");
-    Serial.print(digitalRead(PIN_VOLUME_BAS));
+    Serial.print(digitalRead(PIN_CUVE_BLEUE_BAS));
     Serial.print(", vide = ");
-    Serial.println(volumeBas);
+    Serial.println(cuveBleueBas);
     Serial.print("Pompe: ");
-    Serial.println(pompeOn);
+    Serial.println(pompeBleueOn);
+    Serial.print("Haut: lu = ");
+    Serial.print(digitalRead(PIN_CUVE_VERTE_HAUT));
+    Serial.print(", plein = ");
+    Serial.println(cuveVerteHaut);
+    Serial.print("Bas: lu = ");
+    Serial.print(digitalRead(PIN_CUVE_VERTE_BAS));
+    Serial.print(", vide = ");
+    Serial.println(cuveVerteBas);
+    Serial.print("Pompe: ");
+    Serial.println(pompeVerteOn);
 #endif
+
+    if (startup)
+    {
+        startup = false;
+    }
 
     cycleCount++;
     if (cycleCount == cycleCountSize)
     {
-        if (startup)
+        if (temperatureExterieurAverage.sampleCount() > cycleCountSize / 2)
         {
-            startup = false;
-        }
-        if (temperatureSerreAverage.sampleCount() > cycleCountSize / 2)
-        {
-            send(temperatureSerreMsg.set(temperatureSerreAverage.average(), 1));
+            send(temperatureExterieurMsg.set(temperatureExterieurAverage.average(), 1));
         }
         if (temperaturePompeAverage.sampleCount() > cycleCountSize / 2)
         {
-            send(temperaturePompeMsg.set(temperaturePompeAverage.average(), 1));
+            send(temperaturePompeBleueMsg.set(temperaturePompeAverage.average(), 1));
         }
         if (temperatureBassinAverage.sampleCount() > cycleCountSize / 2)
         {
             send(temperatureBassinMsg.set(temperatureBassinAverage.average(), 1));
         }
-        send(volumeBasMsg.set(volumeBas, 0));
-        send(volumeHautMsg.set(volumeHaut, 0));
-        send(pompeMsg.set(pompeOn, 0));
+        send(cuveBleueBasMsg.set(cuveBleueBas, 0));
+        send(cuveBleueHautMsg.set(cuveVerteHaut, 0));
+        send(pompeBleueMsg.set(pompeBleueOn, 0));
+        send(cuveVerteBasMsg.set(cuveVerteBas, 0));
+        send(cuveVerteHautMsg.set(cuveVerteHaut, 0));
+        send(pompeVerteMsg.set(pompeVerteOn, 0));
+        send(cuvePrincipalePleineMsg.set(cuvePrincipalePleine, 0));
         cycleCount = 0;
     }
     sleep(cycleMs - preReadMs);
 }
+
+void receive(const MyMessage &message)
+{
+    // We only expect one type of message from controller. But we better check anyway.
+    if (message.getType() == V_STATUS)
+    {
+        Serial.println(message.getSensor());
+        switch(message.getSensor())
+        {
+        default:
+        case CHILD_ID_CUVE_BLEUE_HAUT:
+        case CHILD_ID_CUVE_BLEUE_BAS:
+        case CHILD_ID_POMPE_BLEUE:
+        case CHILD_ID_CUVE_VERTE_HAUT:
+        case CHILD_ID_CUVE_VERTE_BAS:
+        case CHILD_ID_POMPE_VERTE:
+            break;
+        case CHILD_ID_CUVE_PRINCIPALE_PLEINE:
+            cuvePrincipalePleine = message.getBool();
+#ifdef MY_DEBUG
+            Serial.print("cuvePrincipalePleine = ");
+            Serial.print(cuvePrincipalePleine);
+#endif
+            break;
+        }
+    }
+}
+
