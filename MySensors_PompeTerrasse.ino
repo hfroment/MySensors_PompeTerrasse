@@ -3,7 +3,7 @@
 #include <dht.h>
 
 // Enable debug prints to serial monitor
-#define MY_DEBUG
+//#define MY_DEBUG
 #define MY_NODE_ID 4
 #define MY_REPEATER_FEATURE
 
@@ -185,22 +185,18 @@ bool processTemperature(float& temperature, const DeviceAddress& device, DataAve
 {
     bool retour = true;
     temperature = dsTemp.getTempC(device);
-    if (!isnan(temperature) && (temperature > -127) && (temperature < 80))
+    if (!isnan(temperature) && (temperature > -127.0) && (temperature < 80.0))
     {
         dataAverage.addSample(temperature);
 
-#ifdef MY_DEBUG
         Serial.print("T : ");
         Serial.println(temperature);
-#endif
     }
     else
     {
-#ifdef MY_DEBUG
         Serial.print("Erreur T : ");
         Serial.println(temperature);
         retour = false;
-#endif
     }
     return retour;
 }
